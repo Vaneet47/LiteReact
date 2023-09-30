@@ -28,25 +28,14 @@ function createTextElement(text) {
   };
 }
 
-let nextUnitOfWork = null;
-
-requestIdleCallback(workLoop);
-
 /** @jsx LiteReact.createElement  */
 const element = (
   <h1 style='background: orange; color: white' title='introduction'>
-    LiteReact Library
+    <p> LiteReact Library</p>
   </h1>
 );
 
-function render(element, container) {
-  nextUnitOfWork = {
-    dom: container,
-    props: {
-      children: [element],
-    },
-  };
-}
+requestIdleCallback(workLoop);
 
 function createDOM(fiber) {
   //1. create DOM node
@@ -68,11 +57,14 @@ function createDOM(fiber) {
 }
 
 function workLoop(deadline) {
-  let shouldYield = false; // should we yield control back to the browser
-
+  let shouldYield = false;
   while (nextUnitOfWork && !shouldYield) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
     shouldYield = deadline.timeRemaining() < 1;
+  }
+
+  if (!nextUnitOfWork && workInProgressRoot) {
+    commitRoot();
   }
 
   requestIdleCallback(workLoop);
@@ -81,10 +73,6 @@ function workLoop(deadline) {
 function performUnitOfWork(fiber) {
   if (!fiber.dom) {
     fiber.dom = createDOM(fiber);
-  }
-
-  if (fiber.parent) {
-    fiber.parent.dom.appendChild(fiber.dom);
   }
 
   const elements = fiber.props.children;
@@ -119,6 +107,33 @@ function performUnitOfWork(fiber) {
     }
     nextFiber = nextFiber.parent;
   }
+}
+
+let nextUnitOfWork = null;
+let workInProgressRoot = null;
+
+function render(element, container) {
+  workInProgressRoot = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+  };
+  nextUnitOfWork = workInProgressRoot;
+}
+
+function commitRoot() {
+  commitWork(workInProgressRoot.child);
+  workInProgressRoot = null;
+}
+
+function commitWork(fiber) {
+  if (!fiber) return;
+
+  const domParent = fiber.parent.dom;
+  domParent.appendChild(fiber.dom);
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
 }
 
 LiteReact.render(element, container);
