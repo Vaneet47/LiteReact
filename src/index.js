@@ -1,5 +1,4 @@
 const container = document.getElementById('root');
-// const root = ReactDOM.createRoot(container);
 
 const LiteReact = {
   createElement,
@@ -29,6 +28,10 @@ function createTextElement(text) {
   };
 }
 
+let nextUnitOfWork = null;
+
+requestIdleCallback(workLoop);
+
 /** @jsx LiteReact.createElement  */
 const element = (
   <h1 style='background: orange; color: white' title='introduction'>
@@ -36,57 +39,86 @@ const element = (
   </h1>
 );
 
-// this is same as below - this is done by react under the hood
-
-// const element = React.createElement(
-//   'h1', // type of element
-//   { title: 'introduction' }, // attributes
-//   'Hello World' // children (i.e. this can also be an array of other elements)
-// );
-
-// React.createElement is further broken down in javascript object literal - something like below
-// this will be used to figure out what the DOM should look like
-
-// const element = {
-//   type: 'h1',
-//   props: {
-//     title: 'introduction',
-//     children: 'Hello World',
-//   },
-// };
-
 function render(element, container) {
+  nextUnitOfWork = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+  };
+}
+
+function createDOM(fiber) {
   //1. create DOM node
   const dom =
-    element.type === 'TEXT_ELEMENT'
+    fiber.type === 'TEXT_ELEMENT'
       ? document.createTextNode('')
-      : document.createElement(element.type);
+      : document.createElement(fiber.type);
 
   //2. Add all properties/attributes
-  Object.keys(element.props)
+  Object.keys(fiber.props)
     .filter((key) => {
       if (key !== 'children') return true;
     })
     .forEach((propName) => {
-      dom[propName] = element.props[propName];
+      dom[propName] = fiber.props[propName];
     });
 
-  //3. Add all children
-  element.props.children.forEach((child) => render(child, dom));
+  return dom;
+}
 
-  //4. Render on screen
-  container.appendChild(dom);
+function workLoop(deadline) {
+  let shouldYield = false; // should we yield control back to the browser
+
+  while (nextUnitOfWork && !shouldYield) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+    shouldYield = deadline.timeRemaining() < 1;
+  }
+
+  requestIdleCallback(workLoop);
+}
+
+function performUnitOfWork(fiber) {
+  if (!fiber.dom) {
+    fiber.dom = createDOM(fiber);
+  }
+
+  if (fiber.parent) {
+    fiber.parent.dom.appendChild(fiber.dom);
+  }
+
+  const elements = fiber.props.children;
+  let index = 0;
+  let prevSibling = null;
+
+  while (index < elements.length) {
+    const element = elements[index];
+    const newFiber = {
+      type: element.type,
+      props: element.props,
+      parent: fiber,
+      dom: null,
+    };
+
+    if (index == 0) {
+      fiber.child = newFiber;
+    } else {
+      prevSibling.sibling = newFiber;
+    }
+    prevSibling = newFiber;
+    index++;
+  }
+
+  if (fiber.child) return fiber.child;
+
+  let nextFiber = fiber;
+
+  while (nextFiber) {
+    if (nextFiber.sibling) {
+      return nextFiber.sibling;
+    }
+    nextFiber = nextFiber.parent;
+  }
 }
 
 LiteReact.render(element, container);
-
-// deconstructing render
-
-// const node = document.createElement(element.type)
-// node['title'] = element.props.title
-
-// const text = document.createTextNode("");
-// text["nodeValue"] = element.props.children;
-
-// node.appendChild(text)
-// container.appendChild(node)
