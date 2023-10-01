@@ -29,17 +29,10 @@ function createTextElement(text) {
 }
 
 /** @jsx LiteReact.createElement  */
-const element = (
-  <h1 style='background: red; color: white' title='introduction'>
-    <p
-      onclick={function () {
-        alert('clicked');
-      }}
-    >
-      LiteReact Library
-    </p>
-  </h1>
-);
+function App({ name }) {
+  return <h1>Hi, I'm {name}</h1>;
+}
+const element = <App name='LiteReact library' />;
 
 requestIdleCallback(workLoop);
 
@@ -77,13 +70,13 @@ function workLoop(deadline) {
 }
 
 function performUnitOfWork(fiber) {
-  if (!fiber.dom) {
-    fiber.dom = createDOM(fiber);
+  const isFunctionComponent = fiber.type instanceof Function;
+
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber);
+  } else {
+    updateHostComponent(fiber);
   }
-
-  const elements = fiber.props.children;
-
-  reconcileChildren(fiber, elements);
 
   if (fiber.child) return fiber.child;
 
@@ -95,6 +88,19 @@ function performUnitOfWork(fiber) {
     }
     nextFiber = nextFiber.parent;
   }
+}
+
+function updateHostComponent(fiber) {
+  if (!fiber.dom) {
+    fiber.dom = createDOM(fiber);
+  }
+  const elements = fiber.props.children;
+  reconcileChildren(fiber, elements);
+}
+
+function updateFunctionComponent(fiber) {
+  const children = [fiber.type(fiber.props)];
+  reconcileChildren(fiber, children);
 }
 
 function reconcileChildren(workInProgressFiber, elements) {
@@ -181,17 +187,31 @@ function commitRoot() {
 function commitWork(fiberObject) {
   if (!fiberObject) return;
 
-  const domParent = fiberObject.parent.dom;
+  let domParentFiber = fiberObject.parent;
+  while (!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent;
+  }
+
+  const domParent = domParentFiber.dom;
 
   if (fiberObject.effectTag === 'PLACEMENT' && fiberObject.dom != null) {
     domParent.appendChild(fiberObject.dom);
   } else if (fiberObject.effectTag === 'DELETION') {
-    domParent.removeChild(fiberObject.dom);
+    // domParent.removeChild(fiberObject.dom);
+    commitDeletion(fiberObject, domParent);
   } else if (fiberObject.effectTag === 'UPDATE' && fiberObject.dom != null) {
     updateDOM(fiberObject.dom, fiberObject.prevCommit.props, fiberObject.props);
   }
   commitWork(fiberObject.child);
   commitWork(fiberObject.sibling);
+}
+
+function commitDeletion(fiber, domParent) {
+  if (fiber.dom) {
+    domParent.removeChild(fiber.dom);
+  } else {
+    commitDeletion(fiber.child, domParent);
+  }
 }
 
 const isEvent = (key) => key.startsWith('on');
