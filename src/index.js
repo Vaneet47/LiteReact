@@ -1,8 +1,7 @@
-const container = document.getElementById('root');
-
 const LiteReact = {
   createElement,
   render,
+  useState,
 };
 
 function createElement(type, props, ...children) {
@@ -27,12 +26,6 @@ function createTextElement(text) {
     },
   };
 }
-
-/** @jsx LiteReact.createElement  */
-function App({ name }) {
-  return <h1>Hi, I'm {name}</h1>;
-}
-const element = <App name='LiteReact library' />;
 
 requestIdleCallback(workLoop);
 
@@ -62,7 +55,7 @@ function workLoop(deadline) {
     shouldYield = deadline.timeRemaining() < 1;
   }
 
-  if (!nextUnitOfWork && workInProgressFiber) {
+  if (!nextUnitOfWork && workInProgressRoot) {
     commitRoot();
   }
 
@@ -98,32 +91,36 @@ function updateHostComponent(fiber) {
   reconcileChildren(fiber, elements);
 }
 
+let workInProgressFiber = null;
+let hookIndex = null;
+
 function updateFunctionComponent(fiber) {
+  workInProgressFiber = fiber;
+  workInProgressFiber.hooks = [];
+  hookIndex = 0;
   const children = [fiber.type(fiber.props)];
   reconcileChildren(fiber, children);
 }
 
-function reconcileChildren(workInProgressFiber, elements) {
+function reconcileChildren(workInProgressRoot, elements) {
   let index = 0;
   let prevSibling = null;
   let oldFiber =
-    workInProgressFiber.prevCommit && workInProgressFiber.prevCommit.child;
+    workInProgressRoot.prevCommit && workInProgressRoot.prevCommit.child;
 
   while (index < elements.length || oldFiber != null) {
     const element = elements[index];
     let newFiber = null;
     const sameType =
-      workInProgressFiber.prevCommit &&
-      element &&
-      element.type == oldFiber.type;
+      workInProgressRoot.prevCommit && element && element.type == oldFiber.type;
 
     if (sameType) {
       // this is update
       newFiber = {
         type: oldFiber.type,
         props: element.props,
-        dom: oldFiber.dom, /////
-        parent: workInProgressFiber,
+        dom: oldFiber.dom,
+        parent: workInProgressRoot,
         prevCommit: oldFiber,
         effectTag: 'UPDATE',
       };
@@ -134,7 +131,7 @@ function reconcileChildren(workInProgressFiber, elements) {
         type: element.type,
         props: element.props,
         dom: null, /////
-        parent: workInProgressFiber,
+        parent: workInProgressRoot,
         prevCommit: null,
         effectTag: 'PLACEMENT',
       };
@@ -146,7 +143,7 @@ function reconcileChildren(workInProgressFiber, elements) {
     }
 
     if (index == 0) {
-      workInProgressFiber.child = newFiber;
+      workInProgressRoot.child = newFiber;
     } else {
       prevSibling.sibling = newFiber;
     }
@@ -161,12 +158,12 @@ function reconcileChildren(workInProgressFiber, elements) {
 }
 
 let nextUnitOfWork = null;
-let workInProgressFiber = null;
+let workInProgressRoot = null;
 let currentRoot = null;
 let deletions = null;
 
 function render(element, container) {
-  workInProgressFiber = {
+  workInProgressRoot = {
     dom: container,
     props: {
       children: [element],
@@ -174,14 +171,14 @@ function render(element, container) {
     prevCommit: currentRoot,
   };
   deletions = [];
-  nextUnitOfWork = workInProgressFiber;
+  nextUnitOfWork = workInProgressRoot;
 }
 
 function commitRoot() {
   deletions.forEach(commitWork);
-  commitWork(workInProgressFiber.child);
-  currentRoot = workInProgressFiber;
-  workInProgressFiber = null;
+  commitWork(workInProgressRoot.child);
+  currentRoot = workInProgressRoot;
+  workInProgressRoot = null;
 }
 
 function commitWork(fiberObject) {
@@ -255,4 +252,47 @@ function updateDOM(dom, prevProps, nextProps) {
     });
 }
 
+function useState(initial) {
+  const oldHook =
+    workInProgressFiber.prevCommit &&
+    workInProgressFiber.prevCommit.hooks &&
+    workInProgressFiber.prevCommit.hooks[hookIndex];
+
+  const hook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: [],
+  };
+
+  const actions = oldHook ? oldHook.queue : [];
+
+  actions.forEach((action) => {
+    hook.state = action(hook.state);
+  });
+
+  const setState = (action) => {
+    hook.queue.push(action);
+    workInProgressRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      prevCommit: currentRoot,
+    };
+
+    nextUnitOfWork = workInProgressRoot;
+    deletions = [];
+  };
+
+  workInProgressFiber.hooks.push(hook);
+  hookIndex++;
+
+  return [hook.state, setState];
+}
+
+/** @jsx LiteReact.createElement  */
+function App({ name }) {
+  const [state, setState] = LiteReact.useState(1);
+  return <h1 onclick={() => setState((c) => c + 1)}>count: {state}</h1>;
+}
+
+const element = <App name='LiteReact library' />;
+const container = document.getElementById('root');
 LiteReact.render(element, container);
